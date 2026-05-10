@@ -139,6 +139,9 @@ input.cell.center{text-align:center;}
     <div class="sidebar-section">Clients</div>
     <div id="nav-clients"></div>
     <div class="sidebar-section">Tools</div>
+    <div class="nav-item" onclick="showPage('history')">
+      <div class="nav-dot"></div><span>Invoice History</span>
+    </div>
     <div class="nav-item" onclick="showPage('settings')">
       <div class="nav-dot"></div><span>Settings</span>
     </div>
@@ -286,6 +289,8 @@ async function showApp(){
   const initials=email.split('@')[0].slice(0,2).toUpperCase();
   document.getElementById('user-avatar').textContent=initials;
   document.getElementById('user-name').textContent=email.split('@')[0];
+  // Fetch live FX rates
+  await fetchLiveFX();
   // Load saved data
   await loadFromSupabase();
   buildNav();
@@ -361,6 +366,47 @@ async function saveExtra(clientId,idx){
     if(data) cdata[clientId].extraCharges[idx].sb_id=data.id;
   }
   showSaving(true);
+}
+
+async function markAsInvoiced(clientId){
+  const cl=CLIENTS[clientId];
+  const commTot=clientCommUSD(clientId);
+  const ppcTot=clientPPC(clientId);
+  const extrasTot=clientExtras(clientId);
+  const grandTot=commTot+ppcTot+extrasTot;
+  const adSpendUSD=clientAdSpendUSD(clientId);
+
+  // Build market breakdown
+  const breakdown=cl.markets.map(m=>{
+    const md=cdata[clientId].marketData[m]||{income:0,pct:cl.defaultPct};
+    const ccy=CCY[m];
+    const iUSD=toUSD(md.income||0,ccy);
+    return {market:m,ccy,income:md.income||0,income_usd:iUSD,pct:md.pct||cl.defaultPct,comm:iUSD*((md.pct||0)/100)};
+  });
+
+  const {error}=await sb.from('commission_invoices').upsert({
+    client_id:clientId,
+    client_name:cl.name,
+    month:selectedMonth,
+    year:selectedYear,
+    period:selectedMonth+' '+selectedYear,
+    income_usd:clientIncomeUSD(clientId),
+    commission_usd:commTot,
+    ppc_fees:ppcTot,
+    extras_usd:extrasTot,
+    total_due:grandTot,
+    fx_eur:fx.EUR,
+    fx_cad:fx.CAD,
+    fx_gbp:fx.GBP,
+    market_breakdown:breakdown,
+    marked_by:currentUser.id,
+    marked_at:new Date().toISOString(),
+  },{onConflict:'client_id,month,year'});
+
+  if(error){alert('Error saving invoice: '+error.message);return;}
+  showSaving(true);
+  // Also generate PDF
+  printInvoice(clientId);
 }
 
 async function deleteExtra(clientId,idx){
@@ -580,8 +626,13 @@ function showPage(page,clientId){
     title.textContent=cl.name;sub.textContent='Commission · '+selectedMonth+' '+selectedYear;
     actions.innerHTML=`<span class="saving-badge" id="save-status" style="display:none;"></span>
       <button class="btn" onclick="triggerUpload()">⬆ Upload</button>
-      <button class="btn btn-primary" onclick="printInvoice('${clientId}')">🖨 Invoice PDF</button>`;
+      <button class="btn" onclick="printInvoice('${clientId}')">🖨 Preview PDF</button>
+      <button class="btn btn-primary" onclick="markAsInvoiced('${clientId}')">✓ Mark as Invoiced</button>`;
     renderClient(clientId);
+  } else if(page==='history'){
+    title.textContent='Invoice History';sub.textContent='All marked invoices';
+    actions.innerHTML=`<span class="saving-badge" id="save-status" style="display:none;"></span>`;
+    renderHistory();
   } else if(page==='settings'){
     title.textContent='Settings';sub.textContent='FX rates & commission defaults';
     actions.innerHTML=`<span class="saving-badge" id="save-status" style="display:none;"></span>`;
@@ -606,6 +657,7 @@ function yearSelect(onch){
 function fxBarHTML(fn){
   return `<div class="fx-bar">
     <span style="font-size:11px;font-weight:700;color:#888;">FX → USD</span>
+    <span id="fx-rate-date" style="font-size:11px;color:#4a3fe8;margin-left:4px;"></span>
     <div class="fx-item"><span class="fx-label">EUR</span> 1 = <input type="number" value="${fx.EUR}" step="0.0001" onchange="fx.EUR=parseFloat(this.value)||1;${fn}"> USD</div>
     <div class="fx-item"><span class="fx-label">CAD</span> 1 = <input type="number" value="${fx.CAD}" step="0.0001" onchange="fx.CAD=parseFloat(this.value)||1;${fn}"> USD</div>
     <div class="fx-item"><span class="fx-label">GBP</span> 1 = <input type="number" value="${fx.GBP}" step="0.0001" onchange="fx.GBP=parseFloat(this.value)||1;${fn}"> USD</div>
@@ -967,6 +1019,24 @@ function printInvoice(id){
   <script>window.onload=()=>window.print();<\/script>
   </body></html>`;
   const w=window.open('','_blank');w.document.write(html);w.document.close();
+}
+
+// ── Live FX ──────────────────────────────────────────────────
+async function fetchLiveFX(){
+  try{
+    const r=await fetch('https://api.frankfurter.app/latest?from=USD&to=EUR,CAD,GBP');
+    const d=await r.json();
+    if(d&&d.rates){
+      if(d.rates.EUR) fx.EUR=parseFloat((1/d.rates.EUR).toFixed(4));
+      if(d.rates.CAD) fx.CAD=parseFloat((1/d.rates.CAD).toFixed(4));
+      if(d.rates.GBP) fx.GBP=parseFloat((1/d.rates.GBP).toFixed(4));
+      const el=document.getElementById('fx-rate-date');
+      if(el) el.textContent='Live · '+d.date;
+    }
+  }catch(e){
+    const el=document.getElementById('fx-rate-date');
+    if(el) el.textContent='Default rates';
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────────
