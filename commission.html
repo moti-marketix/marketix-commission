@@ -139,6 +139,9 @@ input.cell.center{text-align:center;}
     <div class="sidebar-section">Clients</div>
     <div id="nav-clients"></div>
     <div class="sidebar-section">Tools</div>
+    <div class="nav-item" onclick="showPage('collection')">
+      <div class="nav-dot"></div><span>Collection Dashboard</span>
+    </div>
     <div class="nav-item" onclick="showPage('history')">
       <div class="nav-dot"></div><span>Invoice History</span>
     </div>
@@ -629,6 +632,10 @@ function showPage(page,clientId){
       <button class="btn" onclick="printInvoice('${clientId}')">🖨 Preview PDF</button>
       <button class="btn btn-primary" onclick="markAsInvoiced('${clientId}')">✓ Mark as Invoiced</button>`;
     renderClient(clientId);
+  } else if(page==='collection'){
+    title.textContent='Collection Dashboard';sub.textContent='Monthly collections by client';
+    actions.innerHTML=`<span class="saving-badge" id="save-status" style="display:none;"></span>`;
+    renderCollection();
   } else if(page==='history'){
     title.textContent='Invoice History';sub.textContent='All marked invoices';
     actions.innerHTML=`<span class="saving-badge" id="save-status" style="display:none;"></span>`;
