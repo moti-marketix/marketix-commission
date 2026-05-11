@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- Marketix Commission v3.1 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -1050,20 +1051,40 @@ function printInvoice(id){
 
 // ── Live FX ──────────────────────────────────────────────────
 async function fetchLiveFX(){
-  try{
-    const r=await fetch('https://api.frankfurter.app/latest?from=USD&to=EUR,CAD,GBP');
-    const d=await r.json();
-    if(d&&d.rates){
-      if(d.rates.EUR) fx.EUR=parseFloat((1/d.rates.EUR).toFixed(4));
-      if(d.rates.CAD) fx.CAD=parseFloat((1/d.rates.CAD).toFixed(4));
-      if(d.rates.GBP) fx.GBP=parseFloat((1/d.rates.GBP).toFixed(4));
-      const el=document.getElementById('fx-rate-date');
-      if(el) el.textContent='Live · '+d.date;
+  // Try multiple CORS-friendly APIs
+  const apis=[
+    async ()=>{
+      const r=await fetch('https://open.er-api.com/v6/latest/USD');
+      const d=await r.json();
+      if(d&&d.rates){
+        if(d.rates.EUR) fx.EUR=parseFloat((1/d.rates.EUR).toFixed(4));
+        if(d.rates.CAD) fx.CAD=parseFloat((1/d.rates.CAD).toFixed(4));
+        if(d.rates.GBP) fx.GBP=parseFloat((1/d.rates.GBP).toFixed(4));
+        return d.time_last_update_utc?new Date(d.time_last_update_utc).toLocaleDateString():'today';
+      }
+    },
+    async ()=>{
+      const r=await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+      const d=await r.json();
+      if(d&&d.rates){
+        if(d.rates.EUR) fx.EUR=parseFloat((1/d.rates.EUR).toFixed(4));
+        if(d.rates.CAD) fx.CAD=parseFloat((1/d.rates.CAD).toFixed(4));
+        if(d.rates.GBP) fx.GBP=parseFloat((1/d.rates.GBP).toFixed(4));
+        return d.date||'today';
+      }
     }
-  }catch(e){
-    const el=document.getElementById('fx-rate-date');
-    if(el) el.textContent='Default rates';
+  ];
+  for(const api of apis){
+    try{
+      const date=await api();
+      const el=document.getElementById('fx-rate-date');
+      if(el) el.textContent='Live · '+date;
+      return;
+    }catch(e){ continue; }
   }
+  // All failed
+  const el=document.getElementById('fx-rate-date');
+  if(el) el.textContent='⚠️ Using default rates';
 }
 
 // ── Init ──────────────────────────────────────────────────────────
