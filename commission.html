@@ -139,6 +139,9 @@ input.cell.center{text-align:center;}
     <div class="sidebar-section">Clients</div>
     <div id="nav-clients"></div>
     <div class="sidebar-section">Tools</div>
+    <div class="nav-item" onclick="showPage('records')">
+      <div class="nav-dot"></div><span>Upload Records</span>
+    </div>
     <div class="nav-item" onclick="showPage('collection')">
       <div class="nav-dot"></div><span>Collection Dashboard</span>
     </div>
@@ -353,8 +356,12 @@ async function saveMarketData(clientId,market){
     fx_eur:fx.EUR, fx_cad:fx.CAD, fx_gbp:fx.GBP,
     uploaded_by:currentUser.id,
   },{onConflict:'client_id,market,month,year'});
-  if(error) console.error('Save error:',error);
-  else showSaving(true);
+  if(error){
+    console.error('Save error:',error.message,error.details);
+    // Show error visibly
+    const el=document.getElementById('save-status');
+    if(el){el.style.display='inline-flex';el.className='saving-badge';el.textContent='⚠️ Save failed: '+error.message;}
+  } else showSaving(true);
 }
 
 async function saveExtra(clientId,idx){
@@ -581,8 +588,16 @@ async function handleFiles(files){
       cdata[info.clientId].marketData[info.market].uploaded=true;
       if(info.month) selectedMonth=info.month;
       if(info.year)  selectedYear=info.year;
-      // Save to Supabase
+      // Save market data to Supabase
       await saveMarketData(info.clientId,info.market);
+      // Save upload record
+      await sb.from('commission_uploads').upsert({
+        client_id:info.clientId, client_name:CLIENTS[info.clientId].name,
+        market:info.market, currency:CCY[info.market],
+        month:info.month, year:info.year,
+        filename:file.name, income, ad_spend:adSpend,
+        uploaded_by:currentUser.id, uploaded_at:new Date().toISOString()
+      },{onConflict:'client_id,market,month,year'}).catch(e=>console.warn('Upload log error:',e));
       const ccy=CCY[info.market];
       const logEntry={filename:file.name,clientId:info.clientId,clientName:CLIENTS[info.clientId].name,
         market:info.market,month:info.month,year:info.year,income,adSpend,ccy,uploadedAt:new Date().toLocaleString()};
@@ -632,6 +647,10 @@ function showPage(page,clientId){
       <button class="btn" onclick="printInvoice('${clientId}')">🖨 Preview PDF</button>
       <button class="btn btn-primary" onclick="markAsInvoiced('${clientId}')">✓ Mark as Invoiced</button>`;
     renderClient(clientId);
+  } else if(page==='records'){
+    title.textContent='Upload Records';sub.textContent='All uploaded reports';
+    actions.innerHTML=`<span class="saving-badge" id="save-status" style="display:none;"></span>`;
+    renderRecords();
   } else if(page==='collection'){
     title.textContent='Collection Dashboard';sub.textContent='Monthly collections by client';
     actions.innerHTML=`<span class="saving-badge" id="save-status" style="display:none;"></span>`;
@@ -668,6 +687,7 @@ function fxBarHTML(fn){
     <div class="fx-item"><span class="fx-label">EUR</span> 1 = <input type="number" value="${fx.EUR}" step="0.0001" onchange="fx.EUR=parseFloat(this.value)||1;${fn}"> USD</div>
     <div class="fx-item"><span class="fx-label">CAD</span> 1 = <input type="number" value="${fx.CAD}" step="0.0001" onchange="fx.CAD=parseFloat(this.value)||1;${fn}"> USD</div>
     <div class="fx-item"><span class="fx-label">GBP</span> 1 = <input type="number" value="${fx.GBP}" step="0.0001" onchange="fx.GBP=parseFloat(this.value)||1;${fn}"> USD</div>
+    <button class="btn btn-sm" onclick="fetchLiveFX().then(()=>{${fn}})" style="margin-left:8px;font-size:11px;padding:3px 10px;color:#4a3fe8;border-color:#c0bce8;">🔄 Refresh rates</button>
   </div>`;
 }
 
