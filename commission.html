@@ -934,7 +934,134 @@ async function addExtra(id){
   renderClient(id);
 }
 
-// ── Settings ──────────────────────────────────────────────────────
+// ── Records page ─────────────────────────────────────────────────────────────
+async function renderRecords(){
+  document.getElementById('content').innerHTML='<div style="padding:40px;text-align:center;color:#888;">Loading records...</div>';
+  const {data,error}=await sb.from('commission_uploads').select('*').order('uploaded_at',{ascending:false});
+  if(error){document.getElementById('content').innerHTML='<div class="card">Error: '+error.message+'</div>';return;}
+  if(!data||!data.length){document.getElementById('content').innerHTML='<div class="card"><p style="color:#888;font-size:13px;">No uploads yet.</p></div>';return;}
+  const byPeriod={};
+  data.forEach(r=>{const k=r.month+' '+r.year;if(!byPeriod[k])byPeriod[k]=[];byPeriod[k].push(r);});
+  let html='<div class="card"><div class="card-title">All uploaded reports ('+data.length+' total)</div>';
+  Object.entries(byPeriod).forEach(([period,records])=>{
+    html+='<div style="margin-bottom:20px;"><div style="font-size:12px;font-weight:700;color:#4a3fe8;text-transform:uppercase;margin-bottom:8px;padding:6px 0;border-bottom:1px solid #e0e0d8;">📅 '+period+' · '+records.length+' files</div>'
+      +'<div class="tbl-wrap"><table><thead><tr><th>Client</th><th>Market</th><th>CCY</th><th style="text-align:right">Income</th><th style="text-align:right">Income (USD)</th><th style="text-align:right">Ad spend</th><th>File</th><th>Date</th></tr></thead><tbody>';
+    records.forEach(r=>{
+      const rate=r.currency==='USD'?1:r.currency==='EUR'?fx.EUR:r.currency==='CAD'?fx.CAD:fx.GBP;
+      html+='<tr><td><strong>'+r.client_name+'</strong></td><td><span class="badge bg-blue">'+r.market+'</span></td>'
+        +'<td style="color:#888;font-size:12px;">'+r.currency+'</td>'
+        +'<td style="text-align:right;font-weight:600;">'+fmt(r.income||0)+' '+r.currency+'</td>'
+        +'<td style="text-align:right;color:#1a5fa8;font-weight:600;">$'+fmt((r.income||0)*rate)+'</td>'
+        +'<td style="text-align:right;color:#888;">'+fmt(r.ad_spend||0)+' '+r.currency+'</td>'
+        +'<td style="font-size:11px;color:#888;">'+r.filename+'</td>'
+        +'<td style="font-size:11px;color:#aaa;">'+new Date(r.uploaded_at).toLocaleDateString()+'</td></tr>';
+    });
+    html+='</tbody></table></div></div>';
+  });
+  document.getElementById('content').innerHTML=html+'</div>';
+}
+
+// ── Collection Dashboard ──────────────────────────────────────────────────────
+async function renderCollection(){
+  document.getElementById('content').innerHTML='<div style="padding:40px;text-align:center;color:#888;">Loading...</div>';
+  const {data,error}=await sb.from('commission_invoices').select('*').order('year',{ascending:true}).order('month',{ascending:true});
+  if(error){document.getElementById('content').innerHTML='<div class="card">Error: '+error.message+'</div>';return;}
+  if(!data||!data.length){document.getElementById('content').innerHTML='<div class="card"><p style="color:#888;font-size:13px;">No data yet. Mark invoices from client pages.</p></div>';return;}
+  const MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const allPeriods=[...new Set(data.map(d=>d.month+' '+d.year))].sort((a,b)=>{
+    const[am,ay]=a.split(' ');const[bm,by]=b.split(' ');
+    return parseInt(ay)!==parseInt(by)?parseInt(ay)-parseInt(by):MONTHS.indexOf(am)-MONTHS.indexOf(bm);
+  });
+  const clientIds=[...new Set(data.map(d=>d.client_id))];
+  const cNames={};data.forEach(d=>{cNames[d.client_id]=d.client_name;});
+  const matrix={};const pTots={};const cTots={};
+  allPeriods.forEach(p=>{matrix[p]={};pTots[p]=0;});
+  clientIds.forEach(c=>{cTots[c]=0;});
+  data.forEach(d=>{const p=d.month+' '+d.year;matrix[p][d.client_id]=parseFloat(d.total_due)||0;pTots[p]+=parseFloat(d.total_due)||0;cTots[d.client_id]+=parseFloat(d.total_due)||0;});
+  const grand=Object.values(pTots).reduce((s,v)=>s+v,0);
+  const avg=allPeriods.length?grand/allPeriods.length:0;
+  const best=Object.entries(pTots).sort((a,b)=>b[1]-a[1])[0];
+  const cid='cc'+Date.now();
+  let html='<div class="totals-grid" style="margin-bottom:20px;">'
+    +'<div class="tot-card"><div class="tot-label">Grand total</div><div class="tot-val c-amber">$'+fmt(grand)+'</div></div>'
+    +'<div class="tot-card"><div class="tot-label">Monthly average</div><div class="tot-val c-green">$'+fmt(avg)+'</div></div>'
+    +'<div class="tot-card"><div class="tot-label">Best month</div><div class="tot-val c-blue">'+(best?best[0]:'—')+'</div>'+(best?'<div style="font-size:12px;color:#888;">$'+fmt(best[1])+'</div>':'')+'</div>'
+    +'<div class="tot-card"><div class="tot-label">Months tracked</div><div class="tot-val" style="color:#333;">'+allPeriods.length+'</div></div></div>'
+    +'<div class="card" style="margin-bottom:20px;"><div class="card-title">Monthly collections</div><canvas id="'+cid+'" style="width:100%;height:260px;"></canvas></div>'
+    +'<div class="card"><div class="card-title">Breakdown by client & month</div><div class="tbl-wrap"><table><thead><tr><th>Period</th>'
+    +clientIds.map(c=>'<th style="text-align:right">'+cNames[c]+'</th>').join('')
+    +'<th style="text-align:right;background:#f0efff;color:#4a3fe8;">Total</th></tr></thead><tbody>';
+  allPeriods.forEach((p,i)=>{
+    html+='<tr style="background:'+(i%2===0?'#fff':'#fafaf8')+'"><td style="font-weight:600;">'+p+'</td>'
+      +clientIds.map(c=>{const v=matrix[p][c]||0;return '<td style="text-align:right;color:'+(v>0?'#1a7a3a':'#ccc')+';">'+(v>0?'$'+fmt(v):'—')+'</td>';}).join('')
+      +'<td style="text-align:right;font-weight:700;color:#b36b00;">$'+fmt(pTots[p])+'</td></tr>';
+  });
+  html+='<tr style="background:#f0efff;font-weight:700;"><td>TOTAL</td>'
+    +clientIds.map(c=>'<td style="text-align:right;color:#4a3fe8;">$'+fmt(cTots[c])+'</td>').join('')
+    +'<td style="text-align:right;color:#b36b00;font-size:15px;">$'+fmt(grand)+'</td></tr>'
+    +'</tbody></table></div></div>';
+  document.getElementById('content').innerHTML=html;
+  const canvas=document.getElementById(cid);if(!canvas)return;
+  const ctx=canvas.getContext('2d');const W=canvas.offsetWidth||800;const H=240;
+  canvas.width=W;canvas.height=H;
+  const P={t:20,r:20,b:40,l:70};const cW=W-P.l-P.r;const cH=H-P.t-P.b;
+  const n=allPeriods.length;const maxV=Math.max(...Object.values(pTots),1);const step=cW/(n-1||1);
+  ctx.clearRect(0,0,W,H);
+  for(let i=0;i<=4;i++){const y=P.t+cH*(1-i/4);ctx.strokeStyle='#f0f0ea';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+cW,y);ctx.stroke();ctx.fillStyle='#888';ctx.font='11px sans-serif';ctx.textAlign='right';ctx.fillText('$'+fmt(maxV*i/4),P.l-6,y+4);}
+  ctx.fillStyle='#888';ctx.font='11px sans-serif';ctx.textAlign='center';
+  allPeriods.forEach((p,i)=>ctx.fillText(p.split(' ')[0].slice(0,3)+' '+p.split(' ')[1].slice(2),P.l+i*step,H-P.b+16));
+  ctx.strokeStyle='#b36b00';ctx.lineWidth=3;ctx.beginPath();
+  allPeriods.forEach((p,i)=>{const x=P.l+i*step;const y=P.t+cH*(1-pTots[p]/maxV);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.stroke();
+  ctx.fillStyle='#b36b00';allPeriods.forEach((p,i)=>{const x=P.l+i*step;const y=P.t+cH*(1-pTots[p]/maxV);ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();});
+  const COLS={yankee:'#4a3fe8',monkey:'#1a7a3a',peleg:'#b36b00',mava:'#c0392b',jeanrachel:'#1a5fa8'};
+  clientIds.forEach((c,ci)=>{
+    ctx.strokeStyle=COLS[c]||'#888';ctx.lineWidth=1.5;ctx.setLineDash([4,3]);ctx.beginPath();let st=false;
+    allPeriods.forEach((p,i)=>{const v=matrix[p][c]||0;if(!v){st=false;return;}const x=P.l+i*step;const y=P.t+cH*(1-v/maxV);if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y);});
+    ctx.stroke();ctx.setLineDash([]);
+  });
+}
+
+// ── Invoice History ───────────────────────────────────────────────────────────
+async function renderHistory(){
+  document.getElementById('content').innerHTML='<div style="padding:40px;text-align:center;color:#888;">Loading history...</div>';
+  const {data,error}=await sb.from('commission_invoices').select('*').order('year',{ascending:false}).order('month',{ascending:false});
+  if(error){document.getElementById('content').innerHTML='<div class="card">Error: '+error.message+'</div>';return;}
+  if(!data||!data.length){document.getElementById('content').innerHTML='<div class="card"><div class="card-title">Invoice History</div><p style="color:#888;font-size:13px;">No invoices marked yet.</p></div>';return;}
+  const byPeriod={};
+  data.forEach(inv=>{const k=inv.month+' '+inv.year;if(!byPeriod[k])byPeriod[k]={period:k,invoices:[],td:0,tc:0,tp:0};byPeriod[k].invoices.push(inv);byPeriod[k].td+=parseFloat(inv.total_due)||0;byPeriod[k].tc+=parseFloat(inv.commission_usd)||0;byPeriod[k].tp+=parseFloat(inv.ppc_fees)||0;});
+  let html='';
+  for(const[period,g] of Object.entries(byPeriod)){
+    html+='<div class="card" style="margin-bottom:20px;">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">'
+      +'<div class="card-title" style="margin-bottom:0;">📅 '+period+'</div>'
+      +'<div style="display:flex;gap:16px;font-size:13px;">'
+      +'<span style="color:#1a7a3a;font-weight:600;">Commission: $'+fmt(g.tc)+'</span>'
+      +'<span style="color:#4a3fe8;font-weight:600;">PPC: $'+fmt(g.tp)+'</span>'
+      +'<span style="color:#b36b00;font-weight:700;font-size:15px;">Total: $'+fmt(g.td)+'</span></div></div>'
+      +'<div class="tbl-wrap"><table><thead><tr>'
+      +'<th>Client</th><th style="text-align:right">Income</th><th style="text-align:right">Commission</th>'
+      +'<th style="text-align:right">PPC</th><th style="text-align:right">Extras</th>'
+      +'<th style="text-align:right">Total due</th><th>FX</th><th>Date</th></tr></thead><tbody>';
+    g.invoices.forEach(inv=>{
+      html+='<tr><td><strong>'+inv.client_name+'</strong></td>'
+        +'<td style="text-align:right" class="val c-blue">$'+fmt(inv.income_usd)+'</td>'
+        +'<td style="text-align:right" class="val c-green">$'+fmt(inv.commission_usd)+'</td>'
+        +'<td style="text-align:right" class="val c-purple">$'+fmt(inv.ppc_fees)+'</td>'
+        +'<td style="text-align:right" class="val">$'+fmt(inv.extras_usd)+'</td>'
+        +'<td style="text-align:right" class="val c-amber">$'+fmt(inv.total_due)+'</td>'
+        +'<td style="font-size:11px;color:#888;">EUR '+inv.fx_eur+' · CAD '+inv.fx_cad+'</td>'
+        +'<td style="font-size:11px;color:#aaa;">'+new Date(inv.marked_at).toLocaleDateString()+'</td></tr>';
+    });
+    html+='<tr style="background:#fafaf8;font-weight:700;"><td>TOTAL</td><td></td>'
+      +'<td style="text-align:right" class="c-green">$'+fmt(g.tc)+'</td>'
+      +'<td style="text-align:right" class="c-purple">$'+fmt(g.tp)+'</td><td></td>'
+      +'<td style="text-align:right;font-size:15px;" class="c-amber">$'+fmt(g.td)+'</td><td></td><td></td></tr>';
+    html+='</tbody></table></div></div>';
+  }
+  document.getElementById('content').innerHTML=html;
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
 function renderSettings(){
   document.getElementById('content').innerHTML=`
     <div class="card">
