@@ -575,8 +575,10 @@ function parseFilename(filename){
 async function handleFiles(files){
   const logEl=document.getElementById('upload-results');
   if(logEl) logEl.innerHTML='<div class="log-item" style="background:#f0f0ea;">⏳ Processing '+files.length+' file(s)...</div>';
+  if(!files||files.length===0){if(logEl)logEl.innerHTML='<div class="log-item error">❌ No files received</div>';return;}
   const results=[];
   for(const file of files){
+    if(logEl) logEl.innerHTML='<div class="log-item" style="background:#f0f0ea;">⏳ Processing: '+file.name+'</div>';
     if(!file.name.toLowerCase().endsWith('.pdf')){results.push({status:'error',msg:`${file.name} — not a PDF`});continue;}
     const info=parseFilename(file.name);
     if(!info||!info.clientId){results.push({status:'error',msg:`${file.name} — unknown client. Use: ClientName - Market - Month - Year.pdf`});continue;}
@@ -605,7 +607,10 @@ async function handleFiles(files){
       uploadLog=uploadLog.filter(l=>!(l.clientId===info.clientId&&l.market===info.market&&l.month===info.month&&l.year===info.year));
       uploadLog.unshift(logEntry);
       results.push({status:'success',msg:`${CLIENTS[info.clientId].name} · ${info.market} — Income: ${fmt(income)} ${ccy} · Ad spend: ${fmt(adSpend)} ${ccy}`});
-    }catch(e){results.push({status:'error',msg:`${file.name} — error: ${e.message}`});}
+    }catch(e){
+      console.error('Upload error:',e);
+      results.push({status:'error',msg:file.name+' — error: '+e.message+' | '+e.stack?.split('\n')[1]});
+    }
   }
   if(logEl) logEl.innerHTML=results.map(r=>`
     <div class="log-item ${r.status}">
@@ -772,7 +777,7 @@ function renderDashboard(){
         <div style="font-size:14px;font-weight:600;color:#333;margin-bottom:4px;">Drop PDF reports here or click to browse</div>
         <div style="font-size:12px;color:#888;">Auto-saves to cloud · Data persists between sessions</div>
       </div>
-      <div id="upload-results"></div>
+      <div id="upload-results" style="min-height:20px;margin-top:8px;"></div>
     </div>
     ${renderUploadLog()}`;
 }
