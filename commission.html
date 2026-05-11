@@ -314,34 +314,36 @@ async function showApp(){
 
 // ── Supabase data ─────────────────────────────────────────────────
 async function loadFromSupabase(){
+  // RESET all cdata for fresh period load
+  Object.keys(CLIENTS).forEach(id=>{
+    cdata[id].extraCharges=[];
+    CLIENTS[id].markets.forEach(m=>{
+      cdata[id].marketData[m]={income:0,adSpend:0,pct:CLIENTS[id].defaultPct,uploaded:false};
+    });
+  });
+
   const {data,error}=await sb.from('commission_data')
     .select('*')
     .eq('month',selectedMonth)
     .eq('year',selectedYear);
   if(error){console.error('Load error:',error);return;}
-  if(!data||!data.length) return;
-  data.forEach(row=>{
-    if(!cdata[row.client_id]||!cdata[row.client_id].marketData[row.market]) return;
-    cdata[row.client_id].marketData[row.market].income=row.income||0;
-    cdata[row.client_id].marketData[row.market].adSpend=row.ad_spend||0;
-    cdata[row.client_id].marketData[row.market].pct=row.comm_pct||CLIENTS[row.client_id]?.defaultPct||5;
-    cdata[row.client_id].marketData[row.market].uploaded=true;
-    if(row.fx_eur) fx.EUR=row.fx_eur;
-    if(row.fx_cad) fx.CAD=row.fx_cad;
-    if(row.fx_gbp) fx.GBP=row.fx_gbp;
-  });
+  if(data&&data.length){
+    data.forEach(row=>{
+      if(!cdata[row.client_id]||!cdata[row.client_id].marketData[row.market]) return;
+      cdata[row.client_id].marketData[row.market].income=row.income||0;
+      cdata[row.client_id].marketData[row.market].adSpend=row.ad_spend||0;
+      cdata[row.client_id].marketData[row.market].pct=row.comm_pct||CLIENTS[row.client_id]?.defaultPct||5;
+      cdata[row.client_id].marketData[row.market].uploaded=true;
+    });
+  }
 
   // Load extras
   const {data:extras}=await sb.from('commission_extras')
     .select('*').eq('month',selectedMonth).eq('year',selectedYear);
-  if(extras){
+  if(extras&&extras.length){
     extras.forEach(row=>{
       if(!cdata[row.client_id]) return;
-      if(!cdata[row.client_id].extraCharges) cdata[row.client_id].extraCharges=[];
-      // avoid duplicates
-      if(!cdata[row.client_id].extraCharges.find(e=>e.sb_id===row.id)){
-        cdata[row.client_id].extraCharges.push({sb_id:row.id,desc:row.description,amt:row.amount_usd});
-      }
+      cdata[row.client_id].extraCharges.push({sb_id:row.id,desc:row.description,amt:row.amount_usd});
     });
   }
 }
@@ -657,8 +659,9 @@ async function handleFiles(files){
       <span>${r.msg}</span>
     </div>`).join('');
   buildNav();
-  if(currentPage==='dashboard') renderDashboard();
-  else if(currentClient) renderClient(currentClient);
+  // Stay on current page and refresh it
+  if(currentPage==='client'&&currentClient) renderClient(currentClient);
+  else renderDashboard();
 }
 
 // ── Nav ───────────────────────────────────────────────────────────
@@ -718,12 +721,22 @@ function triggerUpload(){
   inp.onchange=e=>handleFiles(Array.from(e.target.files));inp.click();
 }
 
-function monthSelect(onch){
-  const M=['January','February','March','April','May','June','July','August','September','October','November','December'];
-  return `<select onchange="${onch}">${M.map(m=>`<option ${m===selectedMonth?'selected':''}>${m}</option>`).join('')}</select>`;
+async function changePeriod(newMonth,newYear){
+  selectedMonth=newMonth||selectedMonth;
+  selectedYear=newYear||selectedYear;
+  await loadFromSupabase();
+  // Stay on current page
+  if(currentPage==='client'&&currentClient) renderClient(currentClient);
+  else if(currentPage==='dashboard') renderDashboard();
+  else showPage(currentPage,currentClient);
 }
-function yearSelect(onch){
-  return `<select onchange="${onch}">${[2024,2025,2026,2027].map(y=>`<option ${y===selectedYear?'selected':''}>${y}</option>`).join('')}</select>`;
+
+function monthSelect(label){
+  const M=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return `<select onchange="changePeriod(this.value,null)">${M.map(m=>`<option ${m===selectedMonth?'selected':''}>${m}</option>`).join('')}</select>`;
+}
+function yearSelect(label){
+  return `<select onchange="changePeriod(null,parseInt(this.value))">${[2024,2025,2026,2027].map(y=>`<option ${y===selectedYear?'selected':''}>${y}</option>`).join('')}</select>`;
 }
 function fxBarHTML(fn){
   return `<div class="fx-bar">
@@ -773,8 +786,8 @@ function renderDashboard(){
   const gTot=Object.keys(CLIENTS).reduce((s,id)=>s+clientTotal(id),0);
   document.getElementById('content').innerHTML=`
     <div class="period-bar"><span style="font-size:12px;font-weight:600;color:#888;">PERIOD</span>
-      ${monthSelect("selectedMonth=this.value;loadFromSupabase().then(()=>renderDashboard())")}
-      ${yearSelect("selectedYear=parseInt(this.value);loadFromSupabase().then(()=>renderDashboard())")}
+      ${monthSelect()}
+      ${yearSelect()}
     </div>
     ${fxBarHTML('renderDashboard()')}
     <div class="totals-grid">
@@ -879,8 +892,8 @@ function renderClient(id){
 
   document.getElementById('content').innerHTML=
     '<div class="period-bar"><span style="font-size:12px;font-weight:600;color:#888;">PERIOD</span>'
-    +monthSelect("selectedMonth=this.value;loadFromSupabase().then(()=>renderClient('"+id+"'))")
-    +yearSelect("selectedYear=parseInt(this.value);loadFromSupabase().then(()=>renderClient('"+id+"'))")
+    +monthSelect()
+    +yearSelect()
     +'</div>'
     +fxBarHTML("renderClient('"+id+"')")
     +'<div class="totals-grid">'
