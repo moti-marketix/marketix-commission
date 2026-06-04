@@ -599,7 +599,7 @@ function parseFilename(filename){
   };
   let base=filename.replace(/\.pdf$/i,'');
   // Remove common prefixes: Summary-, Report-, etc.
-  base=base.replace(/^(Summary|Report|Amazon|Statement)[-_\s]+/i,'');
+  base=base.replace(/^(Summary|Report|Amazon|Statement|Settlement)[-_\s]+/i,'');
   // Extract year from anywhere
   const yearM=base.match(/20\d{2}/);
   const year=yearM?parseInt(yearM[0]):new Date().getFullYear();
@@ -644,11 +644,13 @@ async function handleFiles(files){
   if(!files||files.length===0){if(logEl)logEl.innerHTML='<div class="log-item error">❌ No files received</div>';return;}
   const results=[];
   for(const file of files){
-    if(logEl) logEl.innerHTML='<div class="log-item" style="background:#f0f0ea;">⏳ Processing: '+file.name+'</div>';
+    if(logEl) logEl.innerHTML=(logEl.innerHTML||'')+'<div class="log-item" style="background:#f0f0ea;">⏳ Processing: '+file.name+'...</div>';
     if(!file.name.toLowerCase().endsWith('.pdf')){results.push({status:'error',msg:`${file.name} — not a PDF`});continue;}
     const info=parseFilename(file.name);
-    if(!info||!info.clientId){results.push({status:'error',msg:`${file.name} — unknown client. Use: ClientName - Market - Month - Year.pdf`});continue;}
-    if(!info.market){results.push({status:'error',msg:`${file.name} — unknown market`});continue;}
+    console.log('[Upload] parseFilename("'+file.name+'") =',JSON.stringify(info));
+    if(!info){results.push({status:'error',msg:file.name+' — could not parse filename. Use format: ClientName-Market-Month-Year.pdf'});continue;}
+    if(!info.clientId){results.push({status:'error',msg:file.name+' — unknown client "'+info.clientRaw+'". Recognized: Yankee/DSW, Monkey Business, Peleg, Mava, Jean Rachel, Rhino'});continue;}
+    if(!info.market){results.push({status:'error',msg:file.name+' — unknown market'});continue;}
     if(!CLIENTS[info.clientId].markets.includes(info.market)){results.push({status:'warn',msg:`${file.name} — ${CLIENTS[info.clientId].name} has no market ${info.market}`});continue;}
     try{
       const {income,adSpend}=await extractDataFromPDF(file);
