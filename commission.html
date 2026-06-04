@@ -264,9 +264,18 @@ async function initAuth(){
   } else {
     showLogin();
   }
+  // Only update currentUser on state change, don't re-render entire app
   sb.auth.onAuthStateChange((_,session)=>{
-    if(session){currentUser=session.user;showApp();}
-    else{currentUser=null;showLogin();}
+    if(session){
+      currentUser=session.user;
+      // Only call showApp if we weren't already logged in
+      if(!document.getElementById('app')||document.getElementById('app').style.display==='none'){
+        showApp();
+      }
+    } else {
+      currentUser=null;
+      showLogin();
+    }
   });
 }
 
@@ -365,7 +374,7 @@ async function saveMarketData(clientId,market){
     currency:ccy, income:md.income||0, ad_spend:md.adSpend||0,
     comm_pct:md.pct||CLIENTS[clientId].defaultPct,
     fx_eur:fx.EUR, fx_cad:fx.CAD, fx_gbp:fx.GBP,
-    uploaded_by:currentUser.id,
+    uploaded_by:currentUser?.id||null,
   },{onConflict:'client_id,market,month,year'});
   if(error){
     console.error('Save error:',error.message,error.details);
@@ -615,6 +624,12 @@ function parseFilename(filename){
 
 async function handleFiles(files){
   const logEl=document.getElementById('upload-results');
+  // Re-check auth session if currentUser is missing
+  if(!currentUser){
+    const {data:{session}}=await sb.auth.getSession();
+    if(session) currentUser=session.user;
+    else{if(logEl)logEl.innerHTML='<div class="log-item error">❌ Not logged in — please refresh and sign in again</div>';return;}
+  }
   if(logEl) logEl.innerHTML='<div class="log-item" style="background:#f0f0ea;">⏳ Processing '+files.length+' file(s)...</div>';
   if(!files||files.length===0){if(logEl)logEl.innerHTML='<div class="log-item error">❌ No files received</div>';return;}
   const results=[];
@@ -640,7 +655,7 @@ async function handleFiles(files){
         market:info.market, currency:CCY[info.market],
         month:info.month, year:info.year,
         filename:file.name, income, ad_spend:adSpend,
-        uploaded_by:currentUser.id, uploaded_at:new Date().toISOString()
+        uploaded_by:currentUser?.id||null, uploaded_at:new Date().toISOString()
       },{onConflict:'client_id,market,month,year'}).catch(e=>console.warn('Upload log error:',e));
       const ccy=CCY[info.market];
       const logEntry={filename:file.name,clientId:info.clientId,clientName:CLIENTS[info.clientId].name,
