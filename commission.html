@@ -257,24 +257,33 @@ function clientTotal(id){return clientCommUSD(id)+clientPPC(id)+clientExtras(id)
 
 // ── Auth ──────────────────────────────────────────────────────────
 async function initAuth(){
+  let appStarted=false;
+
   const {data:{session}}=await sb.auth.getSession();
   if(session){
     currentUser=session.user;
-    showApp();
+    appStarted=true;
+    await showApp();
   } else {
     showLogin();
   }
-  // Only update currentUser on state change, don't re-render entire app
-  sb.auth.onAuthStateChange((_,session)=>{
-    if(session){
+
+  // Listen for sign-in / sign-out only
+  sb.auth.onAuthStateChange((_event,session)=>{
+    if(_event==='SIGNED_IN'&&!appStarted){
       currentUser=session.user;
-      // Only call showApp if we weren't already logged in
-      if(!document.getElementById('app')||document.getElementById('app').style.display==='none'){
-        showApp();
-      }
-    } else {
+      appStarted=true;
+      showApp();
+    } else if(_event==='SIGNED_IN'&&appStarted){
+      // Just keep currentUser fresh, don't re-render
+      currentUser=session?.user||currentUser;
+    } else if(_event==='SIGNED_OUT'){
+      appStarted=false;
       currentUser=null;
       showLogin();
+    } else if(session){
+      // TOKEN_REFRESHED etc - just update user silently
+      currentUser=session.user;
     }
   });
 }
