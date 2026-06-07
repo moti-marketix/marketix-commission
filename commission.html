@@ -632,6 +632,102 @@ function parseFilename(filename){
 }
 
 
+function triggerCSVUpload(){
+  const inp=document.createElement('input');
+  inp.type='file';inp.accept='.csv';
+  inp.onchange=e=>handleCSVFile(e.target.files[0]);inp.click();
+}
+
+async function handleCSVFile(file){
+  if(!file) return;
+  const csvEl=document.getElementById('csv-results');
+  if(csvEl) csvEl.innerHTML='<div class="log-item" style="background:#f0f0ea;">⏳ Parsing '+file.name+'...</div>';
+
+  // Detect client from filename
+  const fname=file.name.toLowerCase().replace(/[_\s-]/g,'');
+  let clientId=null;
+  for(const [alias,cid] of Object.entries(CLIENT_ALIASES)){
+    if(fname.includes(alias)){clientId=cid;break;}
+  }
+  if(!clientId){
+    if(csvEl) csvEl.innerHTML='<div class="log-item error">❌ Could not identify client from filename. Include client name e.g. Advertising-YANKEE-2026.csv</div>';
+    return;
+  }
+
+  const MONTH_NAMES={'1':'January','2':'February','3':'March','4':'April','5':'May','6':'June',
+    '7':'July','8':'August','9':'September','10':'October','11':'November','12':'December'};
+  const COUNTRY_MAP={'US':'USA','CA':'CA','DE':'DE','FR':'FR','IT':'IT','ES':'ES','GB':'UK','UK':'UK'};
+
+  const text=await file.text();
+  const lines=text.split('\n');
+  const headers=lines[0].split(',').map(h=>h.replace(/^"|"$/g,'').trim());
+  const monthIdx=headers.findIndex(h=>h==='Month');
+  const countryIdx=headers.findIndex(h=>h==='Campaign country');
+  const currencyIdx=headers.findIndex(h=>h==='Budget currency');
+  const costIdx=headers.findIndex(h=>h==='Total cost');
+
+  if(monthIdx<0||countryIdx<0||costIdx<0){
+    if(csvEl) csvEl.innerHTML='<div class="log-item error">❌ Missing required columns. Need: Month, Campaign country, Budget currency, Total cost</div>';
+    return;
+  }
+
+  // Sum spend by month+market
+  const byMonthMkt={};
+  for(let i=1;i<lines.length;i++){
+    const cols=lines[i].split(',').map(c=>c.replace(/^"|"$/g,'').replace(/^="(.+)"$/,'$1').trim());
+    if(cols.length<4) continue;
+    const month=cols[monthIdx];
+    const country=cols[countryIdx];
+    const costStr=cols[costIdx];
+    const cost=parseFloat(costStr)||0;
+    if(!month||!country||cost<=0) continue;
+    const monthName=MONTH_NAMES[month];
+    const market=COUNTRY_MAP[country];
+    if(!monthName||!market) continue;
+    const key=monthName+'|'+market;
+    if(!byMonthMkt[key]) byMonthMkt[key]={month:monthName,market,cost:0,currency:cols[currencyIdx]||'USD'};
+    byMonthMkt[key].cost+=cost;
+  }
+
+  if(!Object.keys(byMonthMkt).length){
+    if(csvEl) csvEl.innerHTML='<div class="log-item error">❌ No spend data found in CSV</div>';
+    return;
+  }
+
+  // Save to Supabase for each month/market
+  const results=[];
+  for(const entry of Object.values(byMonthMkt)){
+    const {month,market,cost,currency}=entry;
+    // Update commission_data
+    const {error}=await sb.from('commission_data').upsert({
+      client_id:clientId, market, month, year:selectedYear,
+      currency:CCY[market]||currency,
+      ad_spend:Math.round(cost*100)/100,
+      comm_pct:CLIENTS[clientId]?.defaultPct||5,
+      fx_eur:fx.EUR, fx_cad:fx.CAD, fx_gbp:fx.GBP, fx_ils:fx.ILS,
+      uploaded_by:currentUser?.id||null,
+    },{onConflict:'client_id,market,month,year',ignoreDuplicates:false});
+
+    if(error){
+      results.push({status:'error',msg:month+' · '+market+' — save error: '+error.message});
+    } else {
+      // Update local cdata
+      if(!cdata[clientId].marketData[market]) cdata[clientId].marketData[market]={income:0,adSpend:0,pct:CLIENTS[clientId].defaultPct};
+      cdata[clientId].marketData[market].adSpend=Math.round(cost*100)/100;
+      results.push({status:'success',msg:month+' · '+market+' — Ad spend: '+Math.round(cost).toLocaleString()+' '+currency});
+    }
+  }
+
+  if(csvEl) csvEl.innerHTML=results.map(r=>`
+    <div class="log-item ${r.status}">
+      <span>${r.status==='success'?'✅':'❌'}</span><span>${r.msg}</span>
+    </div>`).join('');
+
+  // Refresh current view
+  if(currentPage==='client'&&currentClient===clientId) renderClient(clientId);
+  else renderDashboard();
+}
+
 async function handleFiles(files){
   const logEl=document.getElementById('upload-results');
   // Re-check auth session if currentUser is missing
@@ -850,6 +946,19 @@ function renderDashboard(){
       <div class="card-title">Upload reports</div>
       <div class="alert alert-info">Name files: <strong>ClientName - Market - Month - Year.pdf</strong><br>
         e.g. <em>Yankee - USA - April - 2026.pdf</em> or <em>DSW_Quality_Products_-_CA_-_April_2026.pdf</em></div>
+      <div style="background:#f0f7ff;border:1px solid #bfdbfe;border-radius:10px;padding:16px 18px;margin-bottom:12px;">
+        <div style="font-size:12px;font-weight:700;color:#1a5fa8;margin-bottom:8px;">📊 Upload Amazon Advertising CSV (optional)</div>
+        <div style="font-size:12px;color:#555;margin-bottom:10px;">Upload the campaign-level advertising report from Amazon to auto-populate ad spend for all months & markets at once. File name must contain the client name e.g. <em>Advertising-YANKEE-2026.csv</em></div>
+        <div class="upload-zone" onclick="triggerCSVUpload()" style="padding:12px;border-color:#93c5fd;background:#f8fbff;"
+          ondragover="event.preventDefault();this.classList.add('drag')"
+          ondragleave="this.classList.remove('drag')"
+          ondrop="event.preventDefault();this.classList.remove('drag');handleCSVFile(Array.from(event.dataTransfer.files)[0])">
+          <div style="font-size:20px;margin-bottom:4px;">📈</div>
+          <div style="font-size:13px;font-weight:600;color:#1a5fa8;">Drop advertising CSV here or click to browse</div>
+          <div style="font-size:11px;color:#888;margin-top:2px;">Columns needed: Month, Campaign country, Budget currency, Total cost</div>
+        </div>
+        <div id="csv-results" style="margin-top:8px;"></div>
+      </div>
       <div class="upload-zone" onclick="triggerUpload()"
         ondragover="event.preventDefault();this.classList.add('drag')"
         ondragleave="this.classList.remove('drag')"
