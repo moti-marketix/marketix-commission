@@ -7,6 +7,7 @@
 <title>Marketix — Commission Calculator</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1a1a1a;background:#f0f0ec;}
@@ -659,33 +660,37 @@ async function handleCSVFile(file){
   const COUNTRY_MAP={'US':'USA','CA':'CA','DE':'DE','FR':'FR','IT':'IT','ES':'ES','GB':'UK','UK':'UK'};
 
   const text=await file.text();
-  const lines=text.split('\n');
-  const headers=lines[0].split(',').map(h=>h.replace(/^"|"$/g,'').trim());
-  const monthIdx=headers.findIndex(h=>h==='Month');
-  const countryIdx=headers.findIndex(h=>h==='Campaign country');
-  const currencyIdx=headers.findIndex(h=>h==='Budget currency');
-  const costIdx=headers.findIndex(h=>h==='Total cost');
 
-  if(monthIdx<0||countryIdx<0||costIdx<0){
-    if(csvEl) csvEl.innerHTML='<div class="log-item error">❌ Missing required columns. Need: Month, Campaign country, Budget currency, Total cost</div>';
+  // Use PapaParse for robust CSV parsing (handles quoted fields, ="..." Excel format)
+  const parsed=Papa.parse(text,{header:true,skipEmptyLines:true,transformHeader:h=>h.trim()});
+  const rows=parsed.data;
+
+  if(!rows.length){
+    if(csvEl) csvEl.innerHTML='<div class="log-item error">❌ Could not parse CSV</div>';
+    return;
+  }
+
+  // Verify required columns
+  const firstRow=rows[0];
+  if(!('Month' in firstRow)||!('Campaign country' in firstRow)||!('Total cost' in firstRow)){
+    if(csvEl) csvEl.innerHTML='<div class="log-item error">❌ Missing required columns. Need: Month, Campaign country, Budget currency, Total cost<br>Found: '+Object.keys(firstRow).join(', ')+'</div>';
     return;
   }
 
   // Sum spend by month+market
   const byMonthMkt={};
-  for(let i=1;i<lines.length;i++){
-    const cols=lines[i].split(',').map(c=>c.replace(/^"|"$/g,'').replace(/^="(.+)"$/,'$1').trim());
-    if(cols.length<4) continue;
-    const month=cols[monthIdx];
-    const country=cols[countryIdx];
-    const costStr=cols[costIdx];
+  for(const row of rows){
+    const month=(row['Month']||'').trim();
+    const country=(row['Campaign country']||'').trim();
+    const currency=(row['Budget currency']||'USD').trim();
+    const costStr=(row['Total cost']||'0').trim();
     const cost=parseFloat(costStr)||0;
     if(!month||!country||cost<=0) continue;
     const monthName=MONTH_NAMES[month];
     const market=COUNTRY_MAP[country];
     if(!monthName||!market) continue;
     const key=monthName+'|'+market;
-    if(!byMonthMkt[key]) byMonthMkt[key]={month:monthName,market,cost:0,currency:cols[currencyIdx]||'USD'};
+    if(!byMonthMkt[key]) byMonthMkt[key]={month:monthName,market,cost:0,currency};
     byMonthMkt[key].cost+=cost;
   }
 
