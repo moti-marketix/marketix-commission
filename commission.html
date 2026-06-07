@@ -227,7 +227,7 @@ const AD_KEYS=[['Cost','of','Advertising'],['Werbekosten'],['Costo','della','pub
 const AD_PHRASES=['Cost of Advertising','Werbekosten','Costo della pubblicità','Costo della pubblicita','Gastos de publicidad','Prix de la publicité','Prix de la publicite'];
 
 // ── State ─────────────────────────────────────────────────────────
-let fx={EUR:1.08,CAD:0.73,GBP:1.27};
+let fx={EUR:1.08,CAD:0.73,GBP:1.27,ILS:0.27}; // ILS: 1 ILS = X USD
 let selectedMonth=new Date().toLocaleString('default',{month:'long'});
 let selectedYear=new Date().getFullYear();
 let currentPage='dashboard';
@@ -383,7 +383,7 @@ async function saveMarketData(clientId,market){
     client_id:clientId, market, month:selectedMonth, year:selectedYear,
     currency:ccy, income:md.income||0, ad_spend:md.adSpend||0,
     comm_pct:md.pct||CLIENTS[clientId].defaultPct,
-    fx_eur:fx.EUR, fx_cad:fx.CAD, fx_gbp:fx.GBP,
+    fx_eur:fx.EUR, fx_cad:fx.CAD, fx_gbp:fx.GBP, fx_ils:fx.ILS,
     uploaded_by:currentUser?.id||null,
   },{onConflict:'client_id,market,month,year'});
   if(error){
@@ -772,7 +772,9 @@ function fxBarHTML(fn){
     <div class="fx-item"><span class="fx-label">EUR</span> 1 = <input type="number" value="${fx.EUR}" step="0.0001" onchange="fx.EUR=parseFloat(this.value)||1;${fn}"> USD</div>
     <div class="fx-item"><span class="fx-label">CAD</span> 1 = <input type="number" value="${fx.CAD}" step="0.0001" onchange="fx.CAD=parseFloat(this.value)||1;${fn}"> USD</div>
     <div class="fx-item"><span class="fx-label">GBP</span> 1 = <input type="number" value="${fx.GBP}" step="0.0001" onchange="fx.GBP=parseFloat(this.value)||1;${fn}"> USD</div>
+    <div class="fx-item"><span class="fx-label" style="color:#2563eb;">ILS</span> 1 = <input type="number" value="${fx.ILS}" step="0.0001" onchange="fx.ILS=parseFloat(this.value)||1;${fn}"> USD</div>
     <button class="btn btn-sm" onclick="fetchLiveFX().then(()=>{${fn}})" style="margin-left:8px;font-size:11px;padding:3px 10px;color:#4a3fe8;border-color:#c0bce8;">🔄 Refresh rates</button>
+    <span style="font-size:10px;color:#aaa;margin-left:4px;">All rates live</span>
   </div>`;
 }
 
@@ -1239,7 +1241,7 @@ function printInvoice(id){
     <tbody>${mktRows}</tbody>
     <tfoot><tr><td colspan="3"><strong>Total</strong></td><td></td><td class="r"><strong>$${fmt(clientIncomeUSD(id))}</strong></td><td></td><td class="r"><strong>$${fmt(commTot)}</strong></td></tr></tfoot>
   </table>
-  <div class="fx-note"><strong>FX rates applied:</strong> EUR 1 = $${fx.EUR.toFixed(4)} · CAD 1 = $${fx.CAD.toFixed(4)} · GBP 1 = $${fx.GBP.toFixed(4)}</div>
+  <div class="fx-note"><strong>FX rates applied:</strong> EUR 1 = $${fx.EUR.toFixed(4)} · CAD 1 = $${fx.CAD.toFixed(4)} · GBP 1 = $${fx.GBP.toFixed(4)} · ILS 1 = $${fx.ILS.toFixed(4)} USD &nbsp;|&nbsp; <em>All rates pulled live from open.er-api.com</em></div>
   <div class="ppc-box"><h3>PPC automation fees</h3>
     ${cl.ppcBasic?`<div class="ppc-row"><span>Basic fee (fixed monthly)</span><span><strong>$350</strong></span></div>`:''}
     <div class="ppc-row"><span>Ad spend ($${fmt(adSpendUSD)} USD × ${cl.ppcAdPct}%)</span><span><strong>$${fmt(ppcAdAmt)}</strong></span></div>
@@ -1253,6 +1255,11 @@ function printInvoice(id){
     <div class="sum-row"><span>PPC automation fees</span><span class="c-purple"><strong>$${fmt(ppcTot)}</strong></span></div>
     ${(cd.extraCharges||[]).map(c=>`<div class="sum-row"><span>${c.desc}</span><span><strong>$${fmt(c.amt)}</strong></span></div>`).join('')}
     <div class="sum-grand"><span>Total due</span><span class="c-amber">$${fmt(grandTot)}</span></div>
+    <div style="margin-top:12px;padding:12px 16px;background:#f0f7ff;border-radius:8px;border:1px solid #bfdbfe;">
+      <div style="font-size:12px;color:#1a5fa8;margin-bottom:4px;font-weight:600;">💱 Equivalent in ILS</div>
+      <div style="font-size:22px;font-weight:700;color:#1a5fa8;">₪${fmt(grandTot/fx.ILS)}</div>
+      <div style="font-size:11px;color:#888;margin-top:3px;">Based on live rate: 1 ILS = $${fx.ILS.toFixed(4)} USD · Rates pulled live from open.er-api.com</div>
+    </div>
   </div>
   <div class="footer">Marketix · Generated ${new Date().toLocaleDateString()} · All amounts in USD</div>
   <script>window.onload=()=>window.print();<\/script>
