@@ -181,7 +181,7 @@ input.cell.center{text-align:center;}
 </div>
 
 <script>
-console.log('%c Marketix Commission v5.2 loaded','background:#4a3fe8;color:white;padding:4px 8px;border-radius:4px;');
+console.log('%c Marketix Commission v5.4 loaded','background:#4a3fe8;color:white;padding:4px 8px;border-radius:4px;');
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 // ── Supabase ──────────────────────────────────────────────────────
@@ -742,15 +742,56 @@ async function handleCSVFile(file){
 
 async function handleFiles(files){
   const logEl=document.getElementById('upload-results');
-  // Re-check auth session if currentUser is missing
   if(!currentUser){
     const {data:{session}}=await sb.auth.getSession();
     if(session) currentUser=session.user;
-    else{if(logEl)logEl.innerHTML='<div class="log-item error">❌ Not logged in — please refresh and sign in again</div>';return;}
+    else{if(logEl)logEl.innerHTML='<div class="log-item error">❌ Not logged in</div>';return;}
   }
-  if(logEl) logEl.innerHTML='<div class="log-item" style="background:#f0f0ea;">⏳ Processing '+files.length+' file(s)...</div>';
-  if(!files||files.length===0){if(logEl)logEl.innerHTML='<div class="log-item error">❌ No files received</div>';return;}
+  if(!files||files.length===0){if(logEl)logEl.innerHTML='<div class="log-item error">❌ No files</div>';return;}
+
+  const total=files.length;
+  let done=0;
   const results=[];
+
+  function updateProgress(msg,status){
+    done++;
+    const pct=Math.round((done/total)*100);
+    const color=status==='success'?'#4a3fe8':status==='error'?'#c0392b':'#b36b00';
+    const icon=status==='success'?'✅':status==='error'?'❌':'⚠️';
+    if(!logEl) return;
+    // Update progress bar
+    const bar=logEl.querySelector('.prog-bar');
+    const pctEl=logEl.querySelector('.prog-pct');
+    const countEl=logEl.querySelector('.prog-count');
+    if(bar) bar.style.width=pct+'%';
+    if(pctEl) pctEl.textContent=pct+'%';
+    if(countEl) countEl.textContent='Processing '+done+' of '+total+'...';
+    // Add result line
+    if(msg){
+      const list=logEl.querySelector('.prog-results');
+      if(list){
+        const div=document.createElement('div');
+        div.className='log-item '+status;
+        div.innerHTML='<span>'+icon+'</span><span>'+msg+'</span>';
+        list.appendChild(div);
+        list.scrollTop=list.scrollHeight;
+      }
+    }
+  }
+
+  // Init progress UI
+  if(logEl) logEl.innerHTML=`
+    <div style="background:#fff;border:1px solid #e0e0d8;border-radius:10px;padding:14px 16px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#555;margin-bottom:6px;">
+        <span class="prog-count">Starting upload of ${total} file(s)...</span>
+        <span class="prog-pct">0%</span>
+      </div>
+      <div style="height:8px;background:#e8e8e0;border-radius:4px;overflow:hidden;">
+        <div class="prog-bar" style="height:100%;width:0%;background:#4a3fe8;border-radius:4px;transition:width 0.2s;"></div>
+      </div>
+    </div>
+    <div class="prog-results" style="max-height:300px;overflow-y:auto;"></div>`;
+
   for(const file of files){
 
     if(!file.name.toLowerCase().endsWith('.pdf')){results.push({status:'error',msg:`${file.name} — not a PDF`});continue;}
@@ -770,13 +811,15 @@ async function handleFiles(files){
       // Save market data to Supabase
       await saveMarketData(info.clientId,info.market);
       // Save upload record
-      await sb.from('commission_uploads').upsert({
-        client_id:info.clientId, client_name:CLIENTS[info.clientId].name,
-        market:info.market, currency:CCY[info.market],
-        month:info.month, year:info.year,
-        filename:file.name, income, ad_spend:adSpend,
-        uploaded_by:currentUser?.id||null, uploaded_at:new Date().toISOString()
-      },{onConflict:'client_id,market,month,year'}).catch(e=>console.warn('Upload log error:',e));
+      try{
+        await sb.from('commission_uploads').upsert({
+          client_id:info.clientId, client_name:CLIENTS[info.clientId].name,
+          market:info.market, currency:CCY[info.market],
+          month:info.month, year:info.year,
+          filename:file.name, income, ad_spend:adSpend,
+          uploaded_by:currentUser?.id||null, uploaded_at:new Date().toISOString()
+        },{onConflict:'client_id,market,month,year'});
+      }catch(uploadErr){console.warn('Upload record error:',uploadErr);}
       const ccy=CCY[info.market];
       const logEntry={filename:file.name,clientId:info.clientId,clientName:CLIENTS[info.clientId].name,
         market:info.market,month:info.month,year:info.year,income,adSpend,ccy,uploadedAt:new Date().toLocaleString()};
@@ -792,16 +835,15 @@ async function handleFiles(files){
       updateProgress(m,'error');
     }
   }
-  // Show final summary
+  // Final summary
   const ok=results.filter(r=>r.status==='success').length;
   const fail=results.filter(r=>r.status==='error').length;
   const warn=results.filter(r=>r.status==='warn').length;
   if(logEl){
-    const summary=`<div style="padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:8px;background:${fail?'#fdf0ee':ok?'#e6f4ea':'#fff8e6'};color:${fail?'#c0392b':ok?'#1a7a3a':'#b36b00'};">
-      ${ok>0?'✅ '+ok+' uploaded successfully. ':''} ${fail>0?'❌ '+fail+' failed. ':''} ${warn>0?'⚠️ '+warn+' skipped.':''}
-    </div>`;
-    const list=logEl.querySelector('.results-list');
-    if(list) list.insertAdjacentHTML('beforebegin',summary);
+    const bar=logEl.querySelector('.prog-bar');
+    if(bar){bar.style.width='100%';bar.style.background=fail?'#c0392b':ok?'#1a7a3a':'#b36b00';}
+    const cnt=logEl.querySelector('.prog-count');
+    if(cnt) cnt.textContent=(ok?'✅ '+ok+' uploaded. ':'')+(fail?'❌ '+fail+' failed. ':'')+(warn?'⚠️ '+warn+' skipped':'');
   }
   buildNav();
   // Stay on current page and refresh it
