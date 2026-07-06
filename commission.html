@@ -181,7 +181,7 @@ input.cell.center{text-align:center;}
 </div>
 
 <script>
-console.log('%c Marketix Commission v5.0 loaded','background:#4a3fe8;color:white;padding:4px 8px;border-radius:4px;');
+console.log('%c Marketix Commission v5.1 loaded','background:#4a3fe8;color:white;padding:4px 8px;border-radius:4px;');
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 // ── Supabase ──────────────────────────────────────────────────────
@@ -603,7 +603,7 @@ function parseFilename(filename){
   };
   let base=filename.replace(/\.pdf$/i,'');
   // Remove common prefixes: Summary-, Report-, etc.
-  base=base.replace(/^(Summary|Report|Amazon|Statement|Settlement)[-_\s]+/i,'');
+  base=base.replace(/^(Summary|Report|Amazon|Statement|Settlements?)[-_\s]+/i,'');
   // Extract year from anywhere
   const yearM=base.match(/20\d{2}/);
   const year=yearM?parseInt(yearM[0]):new Date().getFullYear();
@@ -625,10 +625,14 @@ function parseFilename(filename){
     const m=MONTH_MAP[word.toLowerCase()];
     if(m){month=m;break;}
   }
-  // Match client alias
+  // Match client alias - check if clientRaw contains alias OR alias contains clientRaw
   let clientId=null;
   for(const [alias,cid] of Object.entries(CLIENT_ALIASES)){
-    if(clientRaw===alias||clientRaw.startsWith(alias)||alias.startsWith(clientRaw.slice(0,6))){
+    if(clientRaw===alias||
+       clientRaw.startsWith(alias)||
+       alias.startsWith(clientRaw)||
+       (clientRaw.length>=3&&alias.includes(clientRaw))||
+       (alias.length>=3&&clientRaw.includes(alias))){
       clientId=cid;break;
     }
   }
