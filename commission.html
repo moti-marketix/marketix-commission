@@ -181,7 +181,7 @@ input.cell.center{text-align:center;}
 </div>
 
 <script>
-console.log('%c Marketix Commission v5.4 loaded','background:#4a3fe8;color:white;padding:4px 8px;border-radius:4px;');
+console.log('%c Marketix Commission v5.5 loaded','background:#4a3fe8;color:white;padding:4px 8px;border-radius:4px;');
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 // ── Supabase ──────────────────────────────────────────────────────
@@ -649,7 +649,10 @@ function triggerCSVUpload(){
 async function handleCSVFile(file){
   if(!file) return;
   const csvEl=document.getElementById('csv-results');
-  if(csvEl) csvEl.innerHTML='<div class="log-item" style="background:#f0f0ea;">⏳ Parsing '+file.name+'...</div>';
+  if(csvEl) csvEl.innerHTML=`
+    <div style="background:#f0f0ea;border-radius:8px;padding:10px 14px;font-size:13px;">
+      ⏳ Parsing <strong>${file.name}</strong>...
+    </div>`;
 
   // Detect client from filename
   const fname=file.name.toLowerCase().replace(/[_\s-]/g,'');
@@ -730,10 +733,20 @@ async function handleCSVFile(file){
     }
   }
 
-  if(csvEl) csvEl.innerHTML=results.map(r=>`
-    <div class="log-item ${r.status}">
-      <span>${r.status==='success'?'✅':'❌'}</span><span>${r.msg}</span>
-    </div>`).join('');
+  const ok=results.filter(r=>r.status==='success').length;
+  const fail=results.filter(r=>r.status==='error').length;
+  if(csvEl) csvEl.innerHTML=`
+    <div style="padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:8px;
+      background:${fail&&!ok?'#fdf0ee':ok?'#e6f4ea':'#f0f0ea'};
+      color:${fail&&!ok?'#c0392b':ok?'#1a7a3a':'#888'};">
+      ${ok?'✅ Ad spend saved for '+ok+' month/market combinations':''}
+      ${fail?' · ❌ '+fail+' failed':''}
+    </div>
+    <div style="max-height:250px;overflow-y:auto;">
+      ${results.map(r=>`<div class="log-item ${r.status}">
+        <span>${r.status==='success'?'✅':'❌'}</span><span>${r.msg}</span>
+      </div>`).join('')}
+    </div>`;
 
   // Refresh current view
   if(currentPage==='client'&&currentClient===clientId) renderClient(clientId);
