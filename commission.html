@@ -181,7 +181,7 @@ input.cell.center{text-align:center;}
 </div>
 
 <script>
-console.log('%c Marketix Commission v5.1 loaded','background:#4a3fe8;color:white;padding:4px 8px;border-radius:4px;');
+console.log('%c Marketix Commission v5.2 loaded','background:#4a3fe8;color:white;padding:4px 8px;border-radius:4px;');
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 // ── Supabase ──────────────────────────────────────────────────────
@@ -752,14 +752,14 @@ async function handleFiles(files){
   if(!files||files.length===0){if(logEl)logEl.innerHTML='<div class="log-item error">❌ No files received</div>';return;}
   const results=[];
   for(const file of files){
-    if(logEl) logEl.innerHTML=(logEl.innerHTML||'')+'<div class="log-item" style="background:#f0f0ea;">⏳ Processing: '+file.name+'...</div>';
+
     if(!file.name.toLowerCase().endsWith('.pdf')){results.push({status:'error',msg:`${file.name} — not a PDF`});continue;}
     const info=parseFilename(file.name);
     console.log('[Upload] parseFilename("'+file.name+'") =',JSON.stringify(info));
-    if(!info){results.push({status:'error',msg:file.name+' — could not parse filename. Use format: ClientName-Market-Month-Year.pdf'});continue;}
-    if(!info.clientId){results.push({status:'error',msg:file.name+' — unknown client "'+info.clientRaw+'". Recognized: Yankee/DSW, Monkey Business, Peleg, Mava, Jean Rachel, Rhino'});continue;}
-    if(!info.market){results.push({status:'error',msg:file.name+' — unknown market'});continue;}
-    if(!CLIENTS[info.clientId].markets.includes(info.market)){results.push({status:'warn',msg:`${file.name} — ${CLIENTS[info.clientId].name} has no market ${info.market}`});continue;}
+    if(!info){const m=file.name+' — could not parse filename';results.push({status:'error',msg:m});updateProgress(m,'error');continue;}
+    if(!info.clientId){const m=file.name+' — unknown client. Check filename format';results.push({status:'error',msg:m});updateProgress(m,'error');continue;}
+    if(!info.market){const m=file.name+' — unknown market';results.push({status:'error',msg:m});updateProgress(m,'error');continue;}
+    if(!CLIENTS[info.clientId].markets.includes(info.market)){const m=file.name+' — '+CLIENTS[info.clientId].name+' has no market '+info.market;results.push({status:'warn',msg:m});updateProgress(m,'warn');continue;}
     try{
       const {income,adSpend}=await extractDataFromPDF(file);
       cdata[info.clientId].marketData[info.market].income=income;
@@ -782,17 +782,27 @@ async function handleFiles(files){
         market:info.market,month:info.month,year:info.year,income,adSpend,ccy,uploadedAt:new Date().toLocaleString()};
       uploadLog=uploadLog.filter(l=>!(l.clientId===info.clientId&&l.market===info.market&&l.month===info.month&&l.year===info.year));
       uploadLog.unshift(logEntry);
-      results.push({status:'success',msg:`${CLIENTS[info.clientId].name} · ${info.market} — Income: ${fmt(income)} ${ccy} · Ad spend: ${fmt(adSpend)} ${ccy}`});
+      const successMsg=CLIENTS[info.clientId].name+' · '+info.market+' — Income: '+fmt(income)+' '+ccy+' · Ad spend: '+fmt(adSpend)+' '+ccy;
+      results.push({status:'success',msg:successMsg});
+      updateProgress(successMsg,'success');
     }catch(e){
       console.error('Upload error:',e);
-      results.push({status:'error',msg:file.name+' — error: '+e.message+' | '+e.stack?.split('\n')[1]});
+      const m=file.name+' — error: '+e.message;
+      results.push({status:'error',msg:m});
+      updateProgress(m,'error');
     }
   }
-  if(logEl) logEl.innerHTML=results.map(r=>`
-    <div class="log-item ${r.status}">
-      <span>${r.status==='success'?'✅':r.status==='warn'?'⚠️':'❌'}</span>
-      <span>${r.msg}</span>
-    </div>`).join('');
+  // Show final summary
+  const ok=results.filter(r=>r.status==='success').length;
+  const fail=results.filter(r=>r.status==='error').length;
+  const warn=results.filter(r=>r.status==='warn').length;
+  if(logEl){
+    const summary=`<div style="padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:8px;background:${fail?'#fdf0ee':ok?'#e6f4ea':'#fff8e6'};color:${fail?'#c0392b':ok?'#1a7a3a':'#b36b00'};">
+      ${ok>0?'✅ '+ok+' uploaded successfully. ':''} ${fail>0?'❌ '+fail+' failed. ':''} ${warn>0?'⚠️ '+warn+' skipped.':''}
+    </div>`;
+    const list=logEl.querySelector('.results-list');
+    if(list) list.insertAdjacentHTML('beforebegin',summary);
+  }
   buildNav();
   // Stay on current page and refresh it
   if(currentPage==='client'&&currentClient) renderClient(currentClient);
